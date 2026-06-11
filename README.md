@@ -31,8 +31,18 @@ Tools so far:
 2. **Build flow matrix** — port of `generateFlowMatrixParams()`: ascending
    `_flowVertices`, per-edge `streamSinkId`, one `_streams` entry, and
    big-endian `uint16` `_packedCoordinates`. See `src/lib/contract.ts`.
-3. **Submit** — `Hub.operateFlowMatrix(...)` on the v2 Hub
-   (`0xc12C1E50ABB450d6205Ea2C3Fa861b3B834d13e8`), sent by the avatar.
+3. **Handle wrapped balances** — `operateFlowMatrix` only moves ERC1155 Circles,
+   whose `tokenOwner` must be a registered avatar. But with `WithWrap: true` the
+   pathfinder also routes any ERC20-_wrapped_ foreign CRC you hold, reporting
+   those edges' `tokenOwner` as the **wrapper contract** (not an avatar) — which
+   the Hub rejects with code 36 ([#1](https://github.com/bh2smith/tool-circles/issues/1)).
+   So, like `@circles-sdk`, `buildReplenishBatch` unwraps each wrapper the path
+   spends (full static balance for inflationary, exact amount for demurraged),
+   rewrites those edges' `tokenOwner` to the underlying avatar, and re-wraps any
+   inflationary leftover — yielding a batch of `[unwrap…, operateFlowMatrix,
+re-wrap…]` (just `operateFlowMatrix` when no wrapped balance is on the path).
+4. **Submit** — the batch above, sent by the avatar via `sendTransactions`. The
+   v2 Hub is `0xc12C1E50ABB450d6205Ea2C3Fa861b3B834d13e8`.
 
 ## How Trust Score works
 

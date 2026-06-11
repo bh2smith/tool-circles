@@ -11,10 +11,10 @@ import {
   subscribeWallet,
 } from "@/lib/circles";
 import {
-  buildFlowMatrix,
-  encodeOperateFlowMatrix,
+  assertVerticesRegistered,
+  buildReplenishBatch,
   findPath,
-  HUB_ADDRESS,
+  getTokenBalances,
 } from "@/lib/contract";
 
 // Probe amount for the max-replenishable query — far above any real balance, so
@@ -105,12 +105,15 @@ export default function ReplenishPage() {
     setSubmitting(true);
     try {
       if (!avatar) throw new Error("no connected avatar");
-      const path = await findPath(avatar, avatar, want);
-      const m = buildFlowMatrix(path, avatar, avatar, want);
+      const [path, balances] = await Promise.all([
+        findPath(avatar, avatar, want),
+        getTokenBalances(avatar),
+      ]);
+      const { matrix } = buildReplenishBatch(path, balances, avatar, want);
       setPreview({
         amount: want,
         transfers: path.transfers.length,
-        edges: m.flow.filter((e) => e.streamSinkId === 1).length,
+        edges: matrix.flow.filter((e) => e.streamSinkId === 1).length,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "preview failed");
@@ -132,12 +135,16 @@ export default function ReplenishPage() {
     setSubmitting(true);
     try {
       if (!avatar) throw new Error("no connected avatar");
-      const path = await findPath(avatar, avatar, want);
-      const matrix = buildFlowMatrix(path, avatar, avatar, want);
-      const data = encodeOperateFlowMatrix(matrix);
-      const hashes = await sendTransactions([
-        { to: HUB_ADDRESS, data, value: "0x0" },
+      const [path, balances] = await Promise.all([
+        findPath(avatar, avatar, want),
+        getTokenBalances(avatar),
       ]);
+      // Builds [unwrap…, operateFlowMatrix, re-wrap…] — collapses to a single
+      // operateFlowMatrix when no wrapped balance is on the path.
+      const { txs, matrix } = buildReplenishBatch(path, balances, avatar, want);
+      // Fail fast on any non-avatar vertex rather than an opaque on-chain revert.
+      await assertVerticesRegistered(matrix.flowVertices);
+      const hashes = await sendTransactions(txs);
       setTxHash(Array.isArray(hashes) ? hashes[0] : String(hashes));
     } catch (e) {
       setError(e instanceof Error ? e.message : "replenish failed");
