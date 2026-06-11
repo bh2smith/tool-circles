@@ -26,7 +26,14 @@ export const TOOLS: Tool[] = [
       "Check any account's Backers trust score, and prune sybils from your trust list.",
     status: "live",
   },
+  {
+    id: "converter",
+    title: "CRC Converter",
+    href: "/converter",
+    blurb:
+      "Convert between demurraged CRC and static (inflationary) ERC20 units, exactly as the Hub computes them.",
+    status: "live",
+  },
   // Future ports (registry-ready):
   // { id: "record", title: "Record Game", href: "/record", blurb: "...", status: "planned" },
-  // { id: "converter", title: "CRC Converter", href: "/converter", blurb: "...", status: "planned" },
 ];
