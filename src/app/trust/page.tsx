@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from "react";
 import Toast from "@/components/Toast";
+import Avatar from "@/components/Avatar";
 import {
   CIRCLES_MINIAPP_URL,
+  circlesProfileUrl,
   fetchCirclesProfiles,
   initCircles,
   isMiniappMode,
@@ -38,6 +40,7 @@ function band(score: number): { label: string; color: string } {
 interface TrusteeRow {
   address: string;
   name: string | null;
+  image: string | null;
   score: number | null; // null if the analytics API returned no row
 }
 
@@ -65,7 +68,7 @@ export default function TrustPage() {
   const [askLoading, setAskLoading] = useState(false);
   const [asks, setAsks] = useState<{
     candidates: AskCandidate[];
-    names: Map<string, string | null>;
+    profiles: Map<string, { name: string | null; image: string | null }>;
     hop1: number;
     hop2: number;
     total: number;
@@ -131,6 +134,7 @@ export default function TrustPage() {
       const next: TrusteeRow[] = trustees.map((a) => ({
         address: a,
         name: profiles.get(a)?.name ?? null,
+        image: profiles.get(a)?.previewImageUrl ?? null,
         score: scores.get(a)?.relativeScore ?? null,
       }));
       // Worst first; missing scores treated as 0 (unreachable to backers).
@@ -198,15 +202,18 @@ export default function TrustPage() {
     setAskLoading(true);
     try {
       const data = await fetchAskCandidates(target);
-      const names = await fetchCirclesProfiles(
+      const profiles = await fetchCirclesProfiles(
         data.candidates.map((c) => c.address),
       );
       setAsks({
         candidates: data.candidates,
-        names: new Map(
+        profiles: new Map(
           data.candidates.map((c) => [
             c.address,
-            names.get(c.address)?.name ?? null,
+            {
+              name: profiles.get(c.address)?.name ?? null,
+              image: profiles.get(c.address)?.previewImageUrl ?? null,
+            },
           ]),
         ),
         hop1: data.hop1Backers,
@@ -224,7 +231,7 @@ export default function TrustPage() {
   function copyAsks() {
     if (!asks) return;
     const lines = asks.candidates.map((c) => {
-      const n = asks.names.get(c.address);
+      const n = asks.profiles.get(c.address)?.name;
       return `${n ? n + " " : ""}${c.address}  (${c.sharedIntermediaries} mutual${c.youTrust ? ", you trust them" : ""})`;
     });
     navigator.clipboard
@@ -392,32 +399,42 @@ export default function TrustPage() {
                   </p>
                 ) : (
                   <div className="mt-3 max-h-80 space-y-1 overflow-y-auto">
-                    {asks.candidates.map((c, i) => (
-                      <div
-                        key={c.address}
-                        className="flex items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-950 p-2"
-                      >
-                        <span className="w-5 shrink-0 text-right text-xs text-neutral-600">
-                          {i + 1}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm text-neutral-200">
-                            {asks.names.get(c.address) ?? shorten(c.address)}
-                            {c.youTrust && (
-                              <span className="ml-2 rounded bg-green-900/60 px-1.5 py-0.5 text-[10px] font-semibold text-green-300">
-                                you trust them
-                              </span>
-                            )}
+                    {asks.candidates.map((c, i) => {
+                      const p = asks.profiles.get(c.address);
+                      return (
+                        <a
+                          key={c.address}
+                          href={circlesProfileUrl(c.address)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-950 p-2 transition-colors hover:border-neutral-600"
+                        >
+                          <span className="w-4 shrink-0 text-right text-xs text-neutral-600">
+                            {i + 1}
+                          </span>
+                          <Avatar
+                            src={p?.image ?? null}
+                            alt={p?.name ?? c.address}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm text-neutral-200">
+                              {p?.name ?? shorten(c.address)}
+                              {c.youTrust && (
+                                <span className="ml-2 rounded bg-green-900/60 px-1.5 py-0.5 text-[10px] font-semibold text-green-300">
+                                  you trust them
+                                </span>
+                              )}
+                            </div>
+                            <div className="font-mono text-xs text-neutral-500">
+                              {shorten(c.address)}
+                            </div>
                           </div>
-                          <div className="font-mono text-xs text-neutral-500">
-                            {shorten(c.address)}
+                          <div className="shrink-0 text-right text-xs text-neutral-400">
+                            {c.sharedIntermediaries} mutual
                           </div>
-                        </div>
-                        <div className="shrink-0 text-right text-xs text-neutral-400">
-                          {c.sharedIntermediaries} mutual
-                        </div>
-                      </div>
-                    ))}
+                        </a>
+                      );
+                    })}
                   </div>
                 )}
               </>
@@ -496,9 +513,9 @@ export default function TrustPage() {
                       const rb = band(s);
                       const checked = selected.has(r.address);
                       return (
-                        <label
+                        <div
                           key={r.address}
-                          className={`flex cursor-pointer items-center gap-3 rounded-lg border p-2 transition-colors ${
+                          className={`flex items-center gap-3 rounded-lg border p-2 transition-colors ${
                             checked
                               ? "border-red-700 bg-red-950/30"
                               : "border-neutral-800 bg-neutral-950 hover:border-neutral-700"
@@ -508,20 +525,29 @@ export default function TrustPage() {
                             type="checkbox"
                             checked={checked}
                             onChange={() => toggle(r.address)}
-                            className="h-4 w-4 accent-red-600"
+                            className="h-4 w-4 shrink-0 cursor-pointer accent-red-600"
+                            aria-label={`Select ${r.name ?? r.address}`}
                           />
-                          <div className="min-w-0 flex-1">
-                            <div className="truncate text-sm text-neutral-200">
-                              {r.name ?? shorten(r.address)}
+                          <a
+                            href={circlesProfileUrl(r.address)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex min-w-0 flex-1 items-center gap-3 hover:opacity-80"
+                          >
+                            <Avatar src={r.image} alt={r.name ?? r.address} />
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-sm text-neutral-200">
+                                {r.name ?? shorten(r.address)}
+                              </div>
+                              <div className="font-mono text-xs text-neutral-500">
+                                {shorten(r.address)}
+                              </div>
                             </div>
-                            <div className="font-mono text-xs text-neutral-500">
-                              {shorten(r.address)}
-                            </div>
-                          </div>
+                          </a>
                           <div className={`text-sm font-semibold ${rb.color}`}>
                             {r.score === null ? "0" : s.toFixed(1)}
                           </div>
-                        </label>
+                        </div>
                       );
                     })}
                   </div>

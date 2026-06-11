@@ -16,8 +16,10 @@ export type { Transaction };
 export const CIRCLES_MINIAPP_URL =
   "https://circles.gnosis.io/miniapps/circles-tools";
 
+// Official, public Circles Explorer profile page (profile, balances, trust
+// relations, bot classification). Client-rendered SPA.
 export function circlesProfileUrl(address: string): string {
-  return `https://app.gnosis.io/${address}`;
+  return `https://explorer.aboutcircles.com/avatar/${address}`;
 }
 
 export type WalletListener = (address: string | null) => void;
