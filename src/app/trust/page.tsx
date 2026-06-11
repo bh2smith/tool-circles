@@ -13,7 +13,9 @@ import {
 } from "@/lib/circles";
 import { HUB_ADDRESS } from "@/lib/contract";
 import {
+  type AskCandidate,
   encodeUntrust,
+  fetchAskCandidates,
   fetchOutgoingTrusts,
   fetchTrustScore,
   fetchTrustScores,
@@ -58,6 +60,18 @@ export default function TrustPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [untrusting, setUntrusting] = useState(false);
   const [untrustHashes, setUntrustHashes] = useState<string[] | null>(null);
+
+  // "Who to ask" state
+  const [askLoading, setAskLoading] = useState(false);
+  const [asks, setAsks] = useState<{
+    candidates: AskCandidate[];
+    names: Map<string, string | null>;
+    hop1: number;
+    hop2: number;
+    total: number;
+    truncated: boolean;
+  } | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     initCircles();
@@ -175,6 +189,50 @@ export default function TrustPage() {
     }
   }
 
+  // Find the Backers to ask for a direct trust (hop 2 -> hop 1), ranked warmest
+  // first. Works for any looked-up address; defaults to the connected avatar.
+  async function onFindAsks(target: string) {
+    setError(null);
+    setAsks(null);
+    setCopied(false);
+    setAskLoading(true);
+    try {
+      const data = await fetchAskCandidates(target);
+      const names = await fetchCirclesProfiles(
+        data.candidates.map((c) => c.address),
+      );
+      setAsks({
+        candidates: data.candidates,
+        names: new Map(
+          data.candidates.map((c) => [
+            c.address,
+            names.get(c.address)?.name ?? null,
+          ]),
+        ),
+        hop1: data.hop1Backers,
+        hop2: data.hop2Backers,
+        total: data.totalBackers,
+        truncated: data.truncated,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "could not build ask list");
+    } finally {
+      setAskLoading(false);
+    }
+  }
+
+  function copyAsks() {
+    if (!asks) return;
+    const lines = asks.candidates.map((c) => {
+      const n = asks.names.get(c.address);
+      return `${n ? n + " " : ""}${c.address}  (${c.sharedIntermediaries} mutual${c.youTrust ? ", you trust them" : ""})`;
+    });
+    navigator.clipboard
+      ?.writeText(lines.join("\n"))
+      .then(() => setCopied(true))
+      .catch(() => setError("clipboard unavailable"));
+  }
+
   if (!ready) return null;
 
   const connected = isMiniappMode() && !!avatar;
@@ -288,6 +346,84 @@ export default function TrustPage() {
             </div>
           )}
         </div>
+
+        {/* ── Who to ask to trust you ───────────────────────────────── */}
+        {score && (
+          <div className="mt-6 rounded-xl border border-neutral-800 bg-neutral-900/60 p-5">
+            <h2 className="text-lg font-semibold text-white">
+              Who to ask to trust you
+            </h2>
+            <p className="mt-1 text-sm text-neutral-400">
+              The only way to raise this score is to get Backers to trust you
+              directly. These Backers already reach you at hop 2 (through a
+              mutual connection) but don&apos;t trust you yet — the warmest,
+              highest- leverage asks. A direct trust from any of them moves it
+              from hop 2 to hop 1.
+            </p>
+
+            <button
+              onClick={() => onFindAsks(score.address)}
+              disabled={askLoading}
+              className="mt-4 w-full rounded-lg border border-neutral-700 px-4 py-2 text-sm font-semibold text-neutral-200 transition-colors hover:border-neutral-500 disabled:opacity-50"
+            >
+              {askLoading ? "Scanning the trust graph…" : "Find who to ask"}
+            </button>
+
+            {asks && (
+              <>
+                <div className="mt-4 flex items-center justify-between text-xs text-neutral-500">
+                  <span>
+                    {asks.hop1} trust you directly · {asks.hop2} reachable at
+                    hop 2{asks.truncated ? " (sampled)" : ""}
+                  </span>
+                  {asks.candidates.length > 0 && (
+                    <button
+                      onClick={copyAsks}
+                      className="rounded border border-neutral-700 px-2 py-1 text-xs text-neutral-300 hover:border-neutral-500"
+                    >
+                      {copied ? "Copied" : "Copy list"}
+                    </button>
+                  )}
+                </div>
+
+                {asks.candidates.length === 0 ? (
+                  <p className="mt-3 text-sm text-neutral-400">
+                    No hop-2 Backers found to ask.
+                  </p>
+                ) : (
+                  <div className="mt-3 max-h-80 space-y-1 overflow-y-auto">
+                    {asks.candidates.map((c, i) => (
+                      <div
+                        key={c.address}
+                        className="flex items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-950 p-2"
+                      >
+                        <span className="w-5 shrink-0 text-right text-xs text-neutral-600">
+                          {i + 1}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm text-neutral-200">
+                            {asks.names.get(c.address) ?? shorten(c.address)}
+                            {c.youTrust && (
+                              <span className="ml-2 rounded bg-green-900/60 px-1.5 py-0.5 text-[10px] font-semibold text-green-300">
+                                you trust them
+                              </span>
+                            )}
+                          </div>
+                          <div className="font-mono text-xs text-neutral-500">
+                            {shorten(c.address)}
+                          </div>
+                        </div>
+                        <div className="shrink-0 text-right text-xs text-neutral-400">
+                          {c.sharedIntermediaries} mutual
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
 
         {/* ── Untrust bad accounts ──────────────────────────────────── */}
         <div className="mt-6 rounded-xl border border-neutral-800 bg-neutral-900/60 p-5">

@@ -84,6 +84,36 @@ export async function fetchTrustScores(
   return out;
 }
 
+export interface AskCandidate {
+  address: string;
+  sharedIntermediaries: number; // mutual connections — higher = warmer ask
+  youTrust: boolean; // you already trust them (reciprocation = warmest)
+}
+
+export interface AskCandidates {
+  totalBackers: number;
+  hop1Backers: number; // backers trusting you directly today
+  hop2Backers: number; // backers reachable at hop 2 (the ask pool)
+  candidates: AskCandidate[]; // top 50 by shared intermediaries
+  truncated: boolean; // fan-out was capped for a heavily-trusted avatar
+}
+
+// Backers who reach you at hop 2 but don't trust you directly — the highest-
+// leverage accounts to ask for a direct trust (each one shifts hop 2 -> hop 1).
+// Computed server-side (graph fan-out), ranked by shared intermediaries.
+export async function fetchAskCandidates(
+  avatar: string,
+): Promise<AskCandidates> {
+  const res = await fetch("/api/trust-asks", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ avatar }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error ?? "could not compute ask list");
+  return data as AskCandidates;
+}
+
 // The avatar's active outgoing trust edges (truster == avatar, not expired).
 // Returns lowercased trustee addresses. These are the only trust edges the
 // avatar can change on-chain.
