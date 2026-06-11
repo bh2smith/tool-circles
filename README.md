@@ -15,6 +15,12 @@ Tools so far:
 - **Trust Score** — look up any account's Backers trust score (a sybil-resistance
   proxy), with a hop-distance breakdown, and prune your own trust list by
   scoring everyone you trust and batch-untrusting weakly-connected accounts.
+- **Payment Doctor** — diagnose a CRC payment corridor: the max amount that can
+  route from sender to recipient right now, and which direct trusts from the
+  recipient would widen it. Read-only; not a port — new to this toolbox.
+- **CRC Converter** — convert between demurraged CRC and static (inflationary)
+  ERC20 units at any date, delegating the math to the Hub's own `Demurrage`
+  helpers via `eth_call`. Port of `crcConverter.html`.
 
 ## How Replenish works
 
@@ -48,6 +54,22 @@ inflate your own score by trusting others.
   This is the only trust lever the avatar controls; it curates who you vouch for
   and your token exposure, but does **not** change your own (incoming) score.
 
+## How Payment Doctor works
+
+Transitive payments fail opaquely: the wallet caps the amount at the corridor's
+max flow with no explanation. The doctor probes
+`circlesV2_findPath(Source: sender, Sink: recipient)` with a huge `TargetFlow`
+(and **no** `ToTokens` pin — any token the recipient accepts may settle) to get
+the true max flow, then explains it by diffing the sender's holdings
+(`circles_getTokenBalances`, grouped by token owner, v2 only) against the
+recipient's outgoing trusts:
+
+- tokens the recipient trusts route **directly**;
+- the rest only route while intermediaries have liquidity — each direct trust
+  from the recipient is a guaranteed unlock, up to the amount held. The
+  sender's own token is called out specially, since it's usually the largest
+  holding.
+
 ## Stack
 
 Next.js 16 (App Router) · React 19 · Tailwind 4 · viem · `@aboutcircles/miniapp-sdk`.
@@ -70,12 +92,16 @@ src/
     page.tsx              # tool index (cards from the registry)
     replenish/page.tsx    # Replenish CRC tool (client)
     trust/page.tsx        # Trust Score evaluator + trust-list pruning (client)
+    doctor/page.tsx       # Payment Doctor corridor diagnosis (client)
+    converter/page.tsx    # CRC Converter demurraged <-> static calculator (client)
     api/trust-score/route.ts  # server proxy to the analytics scoring endpoint
   components/             # ToolNav, ToolCard, ConnectGate, Toast
   lib/
     circles.ts            # miniapp-sdk wiring: wallet subscribe, sendTransactions, profiles
     contract.ts           # findPath + flow-matrix encoders + trust/untrust encoders
     trust.ts              # score lookups, outgoing-trust listing
+    doctor.ts             # corridor probe: general findPath, holdings-by-owner, trust diff
+    demurrage.ts          # day index + Hub demurrage conversion factors
     tools.ts              # tool registry — add a tool = one entry + one page
 reference/               # not compiled into the app
     replenish-crc.ts     # the original headless / private-key port (prose reference)
@@ -98,5 +124,5 @@ client-side against the public RPC.
 
 ## Adding tools
 
-Each remaining CirclesTools utility (Record Game, Profile Checker, CRC Converter,
-Safe Viewer, …) is one entry in `src/lib/tools.ts` + one page under `src/app/<id>/`.
+Each remaining CirclesTools utility (Record Game, Profile Checker, Safe Viewer,
+…) is one entry in `src/lib/tools.ts` + one page under `src/app/<id>/`.

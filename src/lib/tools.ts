@@ -27,6 +27,14 @@ export const TOOLS: Tool[] = [
     status: "live",
   },
   {
+    id: "doctor",
+    title: "Payment Doctor",
+    href: "/doctor",
+    blurb:
+      "Diagnose why a CRC payment won't route: max transferable amount, and which trusts would widen the corridor.",
+    status: "live",
+  },
+  {
     id: "converter",
     title: "CRC Converter",
     href: "/converter",
