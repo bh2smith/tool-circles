@@ -181,3 +181,32 @@ export function encodeOperateFlowMatrix(m: FlowMatrix): `0x${string}` {
     args: [m.flowVertices, m.flow, m.streams, m.packedCoordinates],
   });
 }
+
+// ── Trust ────────────────────────────────────────────────────────────────────
+
+// Hub.trust(receiver, expiry): the caller (avatar) trusts `receiver` until
+// `expiry`. Trust is directional and set by the truster, so the avatar can only
+// change its own outgoing edges. Matches @circles-sdk: trust = max-uint96 expiry
+// (never expires), untrust = expiry 0.
+export const hubTrustAbi = parseAbi([
+  "function trust(address _trustReceiver, uint96 _expiry)",
+]);
+
+const NEVER_EXPIRES = 79228162514264337593543950335n; // max uint96
+
+export function encodeTrust(trustee: string): `0x${string}` {
+  return encodeFunctionData({
+    abi: hubTrustAbi,
+    functionName: "trust",
+    args: [trustee as `0x${string}`, NEVER_EXPIRES],
+  });
+}
+
+// Revoke trust by setting expiry to 0 (exactly what avatar.untrust does).
+export function encodeUntrust(trustee: string): `0x${string}` {
+  return encodeFunctionData({
+    abi: hubTrustAbi,
+    functionName: "trust",
+    args: [trustee as `0x${string}`, 0n],
+  });
+}

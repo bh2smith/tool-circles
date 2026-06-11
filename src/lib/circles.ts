@@ -93,3 +93,30 @@ export async function fetchCirclesProfiles(
   }
   return result;
 }
+
+const PROFILE_SEARCH_API = "https://rpc.aboutcircles.com/profiles/search";
+
+// Resolve a username to its avatar address (first match), or return the input
+// unchanged if it is already a 0x address. Returns null when nothing matches.
+export async function resolveAddress(input: string): Promise<string | null> {
+  const q = input.trim();
+  if (/^0x[a-fA-F0-9]{40}$/.test(q)) {
+    try {
+      return getAddress(q);
+    } catch {
+      return null;
+    }
+  }
+  try {
+    const res = await fetch(
+      `${PROFILE_SEARCH_API}?name=${encodeURIComponent(q)}`,
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const profiles = Array.isArray(data) ? data : (data?.data ?? []);
+    const addr = profiles[0]?.address;
+    return addr && /^0x[a-fA-F0-9]{40}$/.test(addr) ? getAddress(addr) : null;
+  } catch {
+    return null;
+  }
+}
