@@ -182,6 +182,209 @@ export function encodeOperateFlowMatrix(m: FlowMatrix): `0x${string}` {
   });
 }
 
+// ── Wrapped (ERC20) balances ─────────────────────────────────────────────────
+
+// `operateFlowMatrix` settles ERC1155 Circles, whose tokenOwner must be a
+// registered avatar. But with `WithWrap: true` the pathfinder happily routes
+// ERC20-wrapped balances you hold, and reports those edges' `tokenOwner` as the
+// *wrapper contract* (e.g. a `CrcV2_ERC20WrapperDeployed_Inflationary` token) —
+// which is not an avatar. Submitted as-is, the Hub reverts with
+// `CirclesErrorOneAddressArg(wrapper, 0x24)` (code 36 = avatar must be
+// registered). See https://github.com/bh2smith/tool-circles/issues/1.
+//
+// So we do what `@circles-sdk`'s `transitiveTransfer` does: unwrap the wrappers
+// the path spends, rewrite those edges' tokenOwner to the underlying avatar, run
+// operateFlowMatrix over the all-avatar path, then re-wrap any inflationary
+// leftover. The official SDK also prepends a self-`setApprovalForAll`; we omit it
+// because here the operator, source and sink are all the avatar (the Safe is
+// msg.sender), which operateFlowMatrix already permits — the non-wrapped path has
+// always worked without one.
+
+const WRAPPER_PREFIX = "CrcV2_ERC20WrapperDeployed";
+// Hub.wrap(_avatar, _amount, _type) — CirclesType { Demurrage = 0, Inflation = 1 }.
+const CIRCLES_TYPE_INFLATION = 1;
+
+// A row from `circles_getTokenBalances` (only the fields we consume). Crucially it
+// carries BOTH the demurraged (`attoCircles`, today's value) and the static
+// (`staticAttoCircles`) balance, so we never have to do demurrage math ourselves.
+export interface TokenBalance {
+  tokenAddress: string; // wrapper contract address (for wrapped tokens)
+  tokenOwner: string; // the underlying registered avatar
+  tokenType: string; // e.g. "CrcV2_ERC20WrapperDeployed_Inflationary"
+  attoCircles: string; // demurraged balance, atto, decimal string
+  staticAttoCircles: string; // static (inflationary) balance, atto
+  isWrapped: boolean;
+  isInflationary: boolean;
+}
+
+export async function getTokenBalances(
+  avatar: string,
+): Promise<TokenBalance[]> {
+  const res = await fetch(CIRCLES_RPC, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 0,
+      method: "circles_getTokenBalances",
+      params: [avatar],
+    }),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message ?? "balances error");
+  return (data.result ?? []) as TokenBalance[];
+}
+
+// Hub.wrap re-wraps unwrapped Circles back into their ERC20 form.
+export const hubWrapAbi = parseAbi([
+  "function wrap(address _avatar, uint256 _amount, uint8 _type) returns (address)",
+]);
+// The ERC20 wrapper itself: unwrap burns the ERC20 and credits the caller the
+// underlying ERC1155 Circles. `_amount` is in the wrapper's own units — static
+// for inflationary wrappers, demurraged for demurraged ones.
+export const erc20WrapperAbi = parseAbi(["function unwrap(uint256 _amount)"]);
+
+export interface BatchTx {
+  to: string;
+  data: `0x${string}`;
+  value: string;
+}
+
+// Build the ordered transaction batch for a replenish, transparently handling any
+// ERC20-wrapped foreign balances the path spends. Returns the txs plus the final
+// flow-matrix vertices (so the caller can fail-fast verify they're all registered
+// avatars). For a path with no wrapped edges this is just the single
+// operateFlowMatrix call — identical to the pre-fix behaviour.
+export function buildReplenishBatch(
+  path: PathData,
+  balances: TokenBalance[],
+  avatar: string,
+  value: bigint,
+): { txs: BatchTx[]; matrix: FlowMatrix } {
+  avatar = avatar.toLowerCase();
+
+  // wrapper contract address -> underlying avatar + balances
+  const wrappers = new Map<
+    string,
+    {
+      owner: string;
+      inflationary: boolean;
+      staticAtto: bigint;
+      demurragedAtto: bigint;
+    }
+  >();
+  for (const b of balances) {
+    const isWrapper =
+      b.isWrapped || (b.tokenType ?? "").startsWith(WRAPPER_PREFIX);
+    if (!isWrapper) continue;
+    wrappers.set(b.tokenAddress.toLowerCase(), {
+      owner: b.tokenOwner.toLowerCase(),
+      inflationary:
+        b.isInflationary || (b.tokenType ?? "").endsWith("Inflationary"),
+      staticAtto: BigInt(b.staticAttoCircles ?? "0"),
+      demurragedAtto: BigInt(b.attoCircles ?? "0"),
+    });
+  }
+
+  // Demurraged amount the path spends per wrapper — sum of edges leaving the
+  // avatar that settle in that wrapper's token. (Pathfinder values are demurraged.)
+  const usedByWrapper = new Map<string, bigint>();
+  for (const t of path.transfers) {
+    const owner = t.tokenOwner.toLowerCase();
+    if (t.from.toLowerCase() === avatar && wrappers.has(owner)) {
+      usedByWrapper.set(
+        owner,
+        (usedByWrapper.get(owner) ?? 0n) + BigInt(t.value),
+      );
+    }
+  }
+
+  const unwraps: BatchTx[] = [];
+  const rewraps: BatchTx[] = [];
+  for (const [wrapperAddr, used] of usedByWrapper) {
+    const w = wrappers.get(wrapperAddr)!;
+    // Inflationary: unwrap the entire static balance (avoids static<->demurraged
+    // rounding short-falls), then re-wrap the leftover. Demurraged: unwrap exactly
+    // what the path needs, nothing to re-wrap.
+    const unwrapAmount = w.inflationary ? w.staticAtto : used;
+    unwraps.push({
+      to: wrapperAddr,
+      data: encodeFunctionData({
+        abi: erc20WrapperAbi,
+        functionName: "unwrap",
+        args: [unwrapAmount],
+      }),
+      value: "0x0",
+    });
+    if (w.inflationary) {
+      const leftover = w.demurragedAtto - used;
+      if (leftover > 0n) {
+        rewraps.push({
+          to: HUB_ADDRESS,
+          data: encodeFunctionData({
+            abi: hubWrapAbi,
+            functionName: "wrap",
+            args: [w.owner as `0x${string}`, leftover, CIRCLES_TYPE_INFLATION],
+          }),
+          value: "0x0",
+        });
+      }
+    }
+  }
+
+  // Rewrite wrapper tokenOwners -> underlying avatar, then build the flow matrix
+  // over the all-avatar path. Amounts (incl. the terminal sum) are unchanged.
+  const rewritten: PathData = {
+    maxFlow: path.maxFlow,
+    transfers: path.transfers.map((t) => {
+      const w = wrappers.get(t.tokenOwner.toLowerCase());
+      return w ? { ...t, tokenOwner: w.owner } : t;
+    }),
+  };
+  const matrix = buildFlowMatrix(rewritten, avatar, avatar, value);
+  const operate: BatchTx = {
+    to: HUB_ADDRESS,
+    data: encodeOperateFlowMatrix(matrix),
+    value: "0x0",
+  };
+
+  return { txs: [...unwraps, operate, ...rewraps], matrix };
+}
+
+export const hubAvatarsAbi = parseAbi([
+  "function avatars(address) view returns (address)",
+]);
+
+// Fail fast with a clear message if any flow vertex is not a registered avatar —
+// instead of letting operateFlowMatrix revert with the opaque code-36 error. This
+// is a safety net for any wrapped/unknown token owner the rewrite above didn't
+// resolve. One multicall against the Hub.
+export async function assertVerticesRegistered(
+  vertices: `0x${string}`[],
+): Promise<void> {
+  const ZERO = "0x0000000000000000000000000000000000000000";
+  const results = await publicClient.multicall({
+    contracts: vertices.map((v) => ({
+      address: HUB_ADDRESS,
+      abi: hubAvatarsAbi,
+      functionName: "avatars" as const,
+      args: [v],
+    })),
+    allowFailure: true,
+  });
+  const bad = vertices.filter((_, i) => {
+    const r = results[i];
+    return r.status !== "success" || r.result === ZERO;
+  });
+  if (bad.length) {
+    throw new Error(
+      `Pathfinder returned ${bad.length} token owner(s) that are not registered ` +
+        `Circles avatars (${bad.join(", ")}). A wrapped balance likely could not ` +
+        `be resolved — please report this.`,
+    );
+  }
+}
+
 // ── Trust ────────────────────────────────────────────────────────────────────
 
 // Hub.trust(receiver, expiry): the caller (avatar) trusts `receiver` until
