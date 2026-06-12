@@ -215,6 +215,8 @@ export interface TokenBalance {
   staticAttoCircles: string; // static (inflationary) balance, atto
   isWrapped: boolean;
   isInflationary: boolean;
+  isGroup: boolean;
+  version: number; // 1 = legacy Circles, 2 = current Hub
 }
 
 export async function getTokenBalances(

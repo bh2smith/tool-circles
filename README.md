@@ -21,6 +21,18 @@ Tools so far:
 - **CRC Converter** — convert between demurraged CRC and static (inflationary)
   ERC20 units at any date, delegating the math to the Hub's own `Demurrage`
   helpers via `eth_call`. Port of `crcConverter.html`.
+- **Mint CRC** — claim your accrued personal CRC (1/hour, capped two weeks
+  after the last mint), with an accrual-cap countdown and mint history. Not a
+  port — new to this toolbox.
+- **Portfolio** — every CRC holding grouped by issuer, with demurrage
+  projections (+30 d / +1 y) and dead-issuer flags (stopped / idle /
+  untrusted). Not a port — new to this toolbox.
+- **Invite** — invite someone into Circles (trust-then-register), track
+  outstanding invites, and list everyone who registered through you. Not a
+  port — new to this toolbox.
+- **Token Holders** — holder distribution of any Circles token (personal or
+  group), with concentration stats and CSV export. Port of
+  `tokenDistributionChecker.html`.
 
 ## How Replenish works
 
@@ -80,6 +92,34 @@ recipient's outgoing trusts:
   sender's own token is called out specially, since it's usually the largest
   holding.
 
+## How the daily-driver tools work
+
+- **Mint** — one multicall on the Hub (`calculateIssuance(avatar)`, `isHuman`,
+  `stopped`) gives the claimable amount and the accrual window:
+  `calculateIssuance` returns `(issuance, startPeriod, endPeriod)` where
+  `startPeriod` is the last mint and `endPeriod` the last completed hour, so
+  `endPeriod − startPeriod` vs `MAX_CLAIM_DURATION` (2 weeks) drives the
+  cap-progress bar. Mint = `Hub.personalMint()` via `sendTransactions`;
+  history = `circles_query` on `CrcV2.PersonalMint`.
+- **Portfolio** — `circles_getTokenBalances` grouped by `tokenOwner` (it
+  carries demurraged + static balances per row, so no math client-side).
+  Projections scale each issuer's **static** balance by the Hub's own
+  conversion factors fetched for `today+30` / `today+365` (see
+  `src/lib/demurrage.ts`). Dead-issuer signals are batched: `Hub.stopped`
+  multicall, issuer types + active incoming-trust counts via two `In`-filtered
+  `circles_query` calls, and last-`PersonalMint` lookups (capped + chunked).
+- **Invite** — there is no `inviteHuman` on the v2 Hub. Inviting = trusting an
+  _unregistered_ address (`Hub.trust`); when the invitee calls
+  `registerHuman(inviter, …)` from their own wallet, **96 CRC is burned from
+  the inviter's personal tokens at that moment** (so the page checks your
+  own-token balance and warns). Outstanding invites = outgoing trusts whose
+  trustee has no `Hub.avatars` entry; successful ones =
+  `V_CrcV2.Avatars where invitedBy == you`.
+- **Token Holders** — one `circles_query` on
+  `V_CrcV2.BalancesByAccountAndToken` filtered by token address (a personal or
+  group token's address _is_ the issuing avatar's address). Note: ERC20-wrapped
+  balances live under their wrapper's address, not the avatar's.
+
 ## Stack
 
 Next.js 16 (App Router) · React 19 · Tailwind 4 · viem · `@aboutcircles/miniapp-sdk`.
@@ -104,14 +144,24 @@ src/
     trust/page.tsx        # Trust Score evaluator + trust-list pruning (client)
     doctor/page.tsx       # Payment Doctor corridor diagnosis (client)
     converter/page.tsx    # CRC Converter demurraged <-> static calculator (client)
+    mint/page.tsx         # Mint CRC claimable dashboard (client)
+    portfolio/page.tsx    # Portfolio holdings-by-issuer inspector (client)
+    invite/page.tsx       # Invite flow + outstanding/successful invites (client)
+    holders/page.tsx      # Token Holders distribution (client)
     api/trust-score/route.ts  # server proxy to the analytics scoring endpoint
-  components/             # ToolNav, ToolCard, ConnectGate, Toast
+  components/             # ToolNav, ToolCard, ConnectGate, Toast, AddressField
   lib/
     circles.ts            # miniapp-sdk wiring: wallet subscribe, sendTransactions, profiles
     contract.ts           # findPath + flow-matrix encoders + trust/untrust encoders
+    query.ts              # generic circles_query client (the indexer)
     trust.ts              # score lookups, outgoing-trust listing
     doctor.ts             # corridor probe: general findPath, holdings-by-owner, trust diff
     demurrage.ts          # day index + Hub demurrage conversion factors
+    mint.ts               # calculateIssuance/personalMint + mint history
+    portfolio.ts          # holdings-by-issuer, projections, dead-issuer signals
+    invite.ts             # invitees/pending queries + personal-balance check
+    distribution.ts       # token-holder distribution query + CSV
+    format.ts             # shared CRC/address/duration formatting
     tools.ts              # tool registry — add a tool = one entry + one page
 reference/               # not compiled into the app
     replenish-crc.ts     # the original headless / private-key port (prose reference)
@@ -134,5 +184,26 @@ client-side against the public RPC.
 
 ## Adding tools
 
-Each remaining CirclesTools utility (Record Game, Profile Checker, Safe Viewer,
-…) is one entry in `src/lib/tools.ts` + one page under `src/app/<id>/`.
+A tool is one entry in `src/lib/tools.ts` + one page under `src/app/<id>/`.
+The registry already lists the roadmap (rendered as "soon" cards), distilled
+from a survey of both CirclesTools repos and the Circles RPC surface:
+
+- **Wave 2 — diagnostics**: Profile Checker (`profileChecker.html`, helper
+  contract `0x6885E3e0…`), Profile History (`profileHistory.html`, NameRegistry
+  `updateMetadataDigest` restore), Safe Inspector (`SafeViewer.html`, state
+  half), plus a Sankey path visualization for Payment Doctor
+  (`trustPathViz.html`).
+- **Wave 3 — groups**: Group Checker (GroupInfoGetter `0x3cd1c2be…`), Group
+  Buy (`findPath` with `ToTokens:[group]` over the existing flow-matrix
+  engine — the original `groupPurchaseHelper.html` swaps the static/demurraged
+  wrappers at line 1263; don't copy that), Group Creator (modernized to
+  BaseGroupFactory `0xD0B5Bd99…`), Group Management (batched
+  `trustBatchWithConditions`).
+- **Wave 4 — economy/social**: Backing Factory (`0xecEd9123…`, CowSwap
+  post-hook appData — verify the program is still live first), Lottery
+  participate (`LotteryFactory 0x4B146798…`), Marketplace Explorer
+  (`market-api.aboutcircles.com`), Trust Graph visualizer (`trustViz.html`).
+- **Skipped on purpose**: `createLegacyCirclesSafe.html` (legacy v1 Safe
+  deployer), `rpcQueryView.html` as a whole (developer IDE — its method
+  catalog is still the best machine-readable RPC docs), `priceInsights.html`
+  (unofficial third-party analytics API).

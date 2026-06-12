@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { formatEther, parseEther } from "viem";
 import Toast from "@/components/Toast";
 import Avatar from "@/components/Avatar";
+import AddressField from "@/components/AddressField";
 import {
   circlesProfileUrl,
   fetchCirclesProfiles,
@@ -143,31 +144,19 @@ export default function DoctorPage() {
 
         {/* ── Inputs ────────────────────────────────────────────────── */}
         <div className="mt-6 rounded-xl border border-neutral-800 bg-neutral-900/60 p-5">
-          <label className={labelClass}>From (sender)</label>
-          <input
-            type="text"
+          <AddressField
+            label="From (sender)"
             value={fromInput}
-            onChange={(e) => setFromInput(e.target.value)}
-            placeholder="0x… or a Circles name"
-            className={inputClass}
+            onChange={setFromInput}
+            avatar={avatar}
           />
-          {avatar && fromInput.toLowerCase() !== avatar.toLowerCase() && (
-            <button
-              onClick={() => setFromInput(avatar)}
-              className="mt-1 text-xs text-green-500 hover:text-green-400"
-            >
-              Use my avatar
-            </button>
-          )}
 
-          <label className={labelClass}>To (recipient)</label>
-          <input
-            type="text"
+          <AddressField
+            label="To (recipient)"
             value={toInput}
-            onChange={(e) => setToInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && onDiagnose()}
-            placeholder="0x… or a Circles name"
-            className={inputClass}
+            onChange={setToInput}
+            onEnter={onDiagnose}
+            className="mt-4"
           />
 
           <label className={labelClass}>Amount (CRC, optional)</label>

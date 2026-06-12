@@ -1,6 +1,7 @@
 "use client";
 
-import { CIRCLES_RPC, encodeUntrust } from "./contract";
+import { encodeUntrust } from "./contract";
+import { circlesQuery } from "./query";
 
 export { encodeUntrust };
 
@@ -118,43 +119,17 @@ export async function fetchAskCandidates(
 // Returns lowercased trustee addresses. These are the only trust edges the
 // avatar can change on-chain.
 export async function fetchOutgoingTrusts(avatar: string): Promise<string[]> {
-  const res = await fetch(CIRCLES_RPC, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "circles_query",
-      params: [
-        {
-          Namespace: "V_CrcV2",
-          Table: "TrustRelations",
-          Filter: [
-            {
-              Type: "FilterPredicate",
-              FilterType: "Equals",
-              Column: "truster",
-              Value: avatar.toLowerCase(),
-            },
-          ],
-          Limit: 20000,
-        },
-      ],
-    }),
+  const rows = await circlesQuery({
+    namespace: "V_CrcV2",
+    table: "TrustRelations",
+    filter: [{ column: "truster", value: avatar.toLowerCase() }],
+    limit: 20000,
   });
-  const data = await res.json();
-  if (data.error) throw new Error(data.error.message ?? "trust query failed");
-  const { columns, rows } = data.result as {
-    columns: string[];
-    rows: unknown[][];
-  };
-  const ti = columns.indexOf("trustee");
-  const ei = columns.indexOf("expiryTime");
   const nowSec = BigInt(Math.floor(Date.now() / 1000));
   const seen = new Set<string>();
   for (const row of rows) {
-    const trustee = String(row[ti]).toLowerCase();
-    const expiry = BigInt(String(row[ei] ?? "0"));
+    const trustee = String(row.trustee).toLowerCase();
+    const expiry = BigInt(String(row.expiryTime ?? "0"));
     if (expiry > nowSec) seen.add(trustee);
   }
   return [...seen];
