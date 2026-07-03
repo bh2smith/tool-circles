@@ -80,7 +80,7 @@ export default function DoctorPage() {
       if (!to) throw new Error("Could not resolve the recipient.");
       if (from.toLowerCase() === to.toLowerCase())
         throw new Error(
-          "Sender and recipient are the same — use Replenish for self-routing.",
+          "Sender and recipient are the same — self-routing is not a payment.",
         );
       let requested: bigint | null = null;
       const amt = amount.trim();

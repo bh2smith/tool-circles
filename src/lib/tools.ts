@@ -10,36 +10,16 @@ export interface Tool {
   status: ToolStatus;
 }
 
+// Mint, Replenish and Trust Score are hidden from the UI at the Gnosis team's
+// request (they conflict with the Gnosis app's own flows). Their routes and
+// lib logic remain — the pages still work by direct URL.
 export const TOOLS: Tool[] = [
-  {
-    id: "mint",
-    title: "Mint CRC",
-    href: "/mint",
-    blurb:
-      "Claim your accrued personal CRC — 1 per hour, capped two weeks after your last mint.",
-    status: "live",
-  },
-  {
-    id: "replenish",
-    title: "Replenish CRC",
-    href: "/replenish",
-    blurb: "Convert foreign CRC you hold back into fresh personal CRC.",
-    status: "live",
-  },
   {
     id: "portfolio",
     title: "Portfolio",
     href: "/portfolio",
     blurb:
       "All your CRC by issuer, with demurrage projections and dead-issuer flags.",
-    status: "live",
-  },
-  {
-    id: "trust",
-    title: "Trust Score",
-    href: "/trust",
-    blurb:
-      "Check any account's Backers trust score, and prune sybils from your trust list.",
     status: "live",
   },
   {
