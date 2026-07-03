@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import Toast from "@/components/Toast";
 import Avatar from "@/components/Avatar";
@@ -57,7 +56,6 @@ export default function PortfolioPage() {
   const [avatar, setAvatar] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [inspected, setInspected] = useState<string | null>(null);
   const [pf, setPf] = useState<Portfolio | null>(null);
   const [profiles, setProfiles] = useState<Map<string, CirclesProfile>>(
     new Map(),
@@ -96,7 +94,6 @@ export default function PortfolioPage() {
     try {
       const addr = await resolveAddress(input);
       if (!addr) throw new Error("Could not resolve that address or name.");
-      setInspected(addr.toLowerCase());
       setPf(await fetchPortfolio(addr));
     } catch (e) {
       setError(e instanceof Error ? e.message : "inspection failed");
@@ -107,7 +104,6 @@ export default function PortfolioPage() {
 
   const name = (a: string) => profiles.get(a)?.name ?? null;
   const image = (a: string) => profiles.get(a)?.previewImageUrl ?? null;
-  const isOwn = !!avatar && !!inspected && avatar.toLowerCase() === inspected;
 
   // Projections are linear in the static balance, so the totals project as
   // the sum of the per-issuer projections.
@@ -260,19 +256,6 @@ export default function PortfolioPage() {
                 >
                   Show more ({pf.issuers.length - visible} remaining)
                 </button>
-              )}
-
-              {isOwn && pf.totals.foreign > 0n && (
-                <p className="mt-4 text-xs text-neutral-500">
-                  Foreign CRC (especially from dead issuers) is what{" "}
-                  <Link
-                    href="/replenish"
-                    className="font-semibold text-green-500 hover:text-green-400"
-                  >
-                    Replenish
-                  </Link>{" "}
-                  converts back into your own token.
-                </p>
               )}
             </div>
           </>

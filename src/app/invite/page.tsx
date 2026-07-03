@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import Toast from "@/components/Toast";
 import Avatar from "@/components/Avatar";
@@ -171,26 +170,8 @@ export default function InvitePage() {
             </span>{" "}
             of your own token; the invite burns {fmtCrc(INVITATION_COST)} CRC
             when they register
-            {short && (
-              <>
-                {" "}
-                — top up via{" "}
-                <Link
-                  href="/mint"
-                  className="font-semibold text-green-500 hover:text-green-400"
-                >
-                  Mint
-                </Link>{" "}
-                or{" "}
-                <Link
-                  href="/replenish"
-                  className="font-semibold text-green-500 hover:text-green-400"
-                >
-                  Replenish
-                </Link>{" "}
-                first, or the registration will fail
-              </>
-            )}
+            {short &&
+              " — top up your own CRC first, or the registration will fail"}
             .
           </div>
           <button
